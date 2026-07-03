@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>洪灝《预测》周期划分交互图表</title>
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
-<script src="all_index_cycle_data_compact.js" defer></script>
+<script>var ALL_INDEX_DATA = {};</script>
+<script src="data_000001_SH.js" defer></script>
+<script src="data_000300_SH.js" defer></script>
+<script src="data_000905_SH.js" defer></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -777,7 +780,7 @@
     if (!hasEcharts || !hasData) {
       var missing = [];
       if (!hasEcharts) missing.push('ECharts');
-      if (!hasData) missing.push('数据(约1MB)');
+      if (!hasData) missing.push('数据(约2MB)');
       document.getElementById('loadingText').textContent = '正在加载 ' + missing.join(' + ') + '... (' + Math.round(pollCount / 10) + 's)';
 
       if (pollCount > MAX_POLL) {
