@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>洪灝《预测》周期划分交互图表</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js" defer></script>
+<script src="all_index_cycle_data_compact.js" defer></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #0a0e1a;
+    color: #e0e0e0;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  /* 顶部控制栏 */
+  .top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: #111827;
+    border-bottom: 1px solid #1f2937;
+    flex-shrink: 0;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .top-bar .title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f3f4f6;
+    white-space: nowrap;
+  }
+  .btn-group { display: flex; gap: 4px; align-items: center; }
+  .btn-group label { font-size: 12px; color: #9ca3af; margin-right: 4px; }
+  .btn {
+    padding: 4px 10px;
+    border: 1px solid #374151;
+    background: #1f2937;
+    color: #d1d5db;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+  .btn:hover { background: #374151; border-color: #4b5563; }
+  .btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  /* 图表容器 */
+  .chart-container { flex: 1; position: relative; min-height: 0; }
+  #mainChart { width: 100%; height: 100%; }
+  /* 可拖拽面板 */
+  .draggable-panel {
+    position: absolute;
+    top: 60px;
+    right: 16px;
+    width: 220px;
+    background: rgba(17,24,39,0.92);
+    border: 1px solid #374151;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    z-index: 100;
+    user-select: none;
+    backdrop-filter: blur(8px);
+  }
+  .panel-handle {
+    padding: 8px 12px;
+    cursor: move;
+    background: rgba(31,41,55,0.8);
+    border-bottom: 1px solid #374151;
+    border-radius: 8px 8px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #f3f4f6;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .panel-handle::before { content: "≡"; font-size: 16px; color: #9ca3af; }
+  .panel-body { padding: 12px; font-size: 12px; line-height: 1.8; }
+  .panel-section { margin-bottom: 10px; }
+  .panel-section-title {
+    font-weight: 600;
+    color: #9ca3af;
+    border-bottom: 1px solid #374151;
+    padding-bottom: 4px;
+    margin-bottom: 6px;
+  }
+  .panel-row { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; }
+  .panel-label { color: #9ca3af; }
+  .panel-value { font-weight: 500; }
+  .panel-value.up { color: #ff6b6b; }
+  .panel-value.down { color: #00d084; }
+  .panel-value.neutral { color: #e0e0e0; }
+  /* 底部状态栏 */
+  .bottom-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    background: #111827;
+    border-top: 1px solid #1f2937;
+    flex-shrink: 0;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .status-group { display: flex; gap: 16px; align-items: center; }
+  .status-item { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+  .status-label { color: #9ca3af; }
+  .status-value { font-weight: 600; }
+  .status-value.up { color: #ff6b6b; }
+  .status-value.down { color: #00d084; }
+  .status-value.neutral { color: #9ca3af; }
+  /* 加载遮罩 */
+  .loading-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: #0a0e1a; z-index: 1000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .loading-spinner {
+    width: 40px; height: 40px; border: 3px solid #1f2937;
+    border-top-color: #2563eb; border-radius: 50%;
+    animation: spin 1s linear infinite; margin-bottom: 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 14px; color: #9ca3af; }
+  .error-text { font-size: 14px; color: #ff6b6b; margin-top: 12px; max-width: 600px; text-align: center; padding: 0 20px; }
+  .success-text { font-size: 14px; color: #00d084; }
+</style>
+</head>
+<body>
+
+<!-- 加载层 -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner" id="loadingSpinner"></div>
+  <div class="loading-text" id="loadingText">正在加载周期数据...</div>
+  <div class="error-text" id="errorText" style="display:none"></div>
+</div>
+
+<!-- 顶部控制栏 -->
+<div class="top-bar" id="topBar" style="display:none">
+  <div class="btn-group">
+    <div class="title">洪灝《预测》周期图表</div>
+  </div>
+  <div class="btn-group">
+    <label>指数:</label>
+    <button class="btn active" data-index="000001.SH">上证指数</button>
+    <button class="btn" data-index="000300.SH">沪深300</button>
+    <button class="btn" data-index="000905.SH">中证500</button>
+  </div>
+  <div class="btn-group">
+    <label>时间:</label>
+    <button class="btn" data-range="1M">1月</button>
+    <button class="btn" data-range="3M">3月</button>
+    <button class="btn" data-range="1Y">1年</button>
+    <button class="btn" data-range="3Y">3年</button>
+    <button class="btn" data-range="7Y">7年</button>
+    <button class="btn active" data-range="ALL">全部</button>
+  </div>
+</div>
+
+<!-- 图表区域 -->
+<div class="chart-container" id="chartContainer" style="display:none">
+  <div id="mainChart"></div>
+
+  <!-- 可拖拽面板 -->
+  <div class="draggable-panel" id="cyclePanel">
+    <div class="panel-handle" id="panelHandle">周期定位</div>
+    <div class="panel-body" id="panelBody">
+      <div class="panel-section">
+        <div class="panel-section-title">当前周期方向</div>
+        <div class="panel-row">
+          <span class="panel-label">方向:</span>
+          <span class="panel-value" id="panelDir">--</span>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">3.5年短周期</div>
+        <div class="panel-row">
+          <span class="panel-label">位置:</span>
+          <span class="panel-value" id="panelShortPhase">--</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">850均线:</span>
+          <span class="panel-value" id="panelMa850">--</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">偏离度:</span>
+          <span class="panel-value" id="panelDev850">--</span>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">7年中周期</div>
+        <div class="panel-row">
+          <span class="panel-label">位置:</span>
+          <span class="panel-value" id="panelMidPhase">--</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">1700均线:</span>
+          <span class="panel-value" id="panelMa1700">--</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">偏离度:</span>
+          <span class="panel-value" id="panelDev1700">--</span>
+        </div>
+      </div>
+      <div class="panel-section">
+        <div class="panel-row">
+          <span class="panel-label">3.5年编号:</span>
+          <span class="panel-value" id="panelShortIdx">--</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">7年编号:</span>
+          <span class="panel-value" id="panelMidIdx">--</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">关键分割:</span>
+          <span class="panel-value neutral">2018.12.31</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 底部状态栏 -->
+<div class="bottom-bar" id="bottomBar" style="display:none">
+  <div class="status-group" id="bottomStatus">
+    <div class="status-item">
+      <span class="status-label">周期方向:</span>
+      <span class="status-value" id="statusDir">--</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">3.5年:</span>
+      <span class="status-value" id="statusShort">--</span>
+    </div>
+    <div class="status-item">
+      <span class="status-label">7年:</span>
+      <span class="status-value" id="statusMid">--</span>
+    </div>
+  </div>
+  <div class="btn-group">
+    <button class="btn" id="toggleTide">显示潮汐理论</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  function showError(msg) {
+    document.getElementById('loadingSpinner').style.display = 'none';
+    document.getElementById('loadingText').textContent = '加载失败';
+    var errEl = document.getElementById('errorText');
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+    console.error(msg);
+  }
+
+  function showSuccess() {
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('topBar').style.display = '';
+    document.getElementById('chartContainer').style.display = '';
+    document.getElementById('bottomBar').style.display = '';
+  }
+
+  var rawData = null;
+  var currentIndex = '000001.SH';
+  var currentRange = 'ALL';
+  var showTide = false;
+  var chart = null;
+  var dataCache = {};
+  var KEY_SPLIT_DATE = '2018-12-31';
+
+  // 颜色配置
+  var COLORS = {
+    bg: '#0a0e1a',
+    grid: '#1f2937',
+    text: '#9ca3af',
+    textLight: '#e0e0e0',
+    upCandle: '#ff6b6b',
+    downCandle: '#00d084',
+    ma850: '#a855f7',
+    ma1700: '#00d4ff',
+    ma42: '#f59e0b',
+    upBg: 'rgba(255, 0, 0, 0.06)',
+    downBg: 'rgba(0, 128, 0, 0.06)',
+    splitLine: 'rgba(255, 255, 255, 0.15)',
+    volumeUp: 'rgba(255, 107, 107, 0.5)',
+    volumeDown: 'rgba(0, 208, 132, 0.5)',
+  };
+
+  // 预处理数据：为每个指数计算缓存
+  function preprocessData(indexCode) {
+    if (dataCache[indexCode]) return dataCache[indexCode];
+    var info = rawData[indexCode];
+    if (!info || !info.d) return null;
+
+    var records = info.d;
+    var startDate = new Date(info.s + 'T00:00:00');
+    var dates = [];
+    var klines = [];
+    var volumes = [];
+    var ma850 = [];
+    var ma1700 = [];
+    var dev850 = [];
+    var dev1700 = [];
+    var cycleDirs = [];
+    var shortPhases = [];
+    var midPhases = [];
+    var shortIdxs = [];
+    var midIdxs = [];
+    var closePrices = [];
+    var ma42 = [];
+    var sumWindow = [];
+
+    for (var i = 0; i < records.length; i++) {
+      var d = records[i];
+      var dayOffset = d[0];
+      var date = new Date(startDate.getTime() + dayOffset * 86400000);
+      var dateStr = date.toISOString().split('T')[0];
+      var k = [d[1], d[2], d[3], d[4]]; // [open, close, low, high]
+      var c = d[2];
+      var originalIdx = dayOffset;
+      var ma850Val = d[6];
+      var ma1700Val = d[7];
+      var dev850Val = d[8];
+      var dev1700Val = d[9];
+
+      dates.push(dateStr);
+      klines.push(k);
+      closePrices.push(c);
+      volumes.push(d[5]);
+      ma850.push(ma850Val);
+      ma1700.push(ma1700Val);
+      dev850.push(dev850Val);
+      dev1700.push(dev1700Val);
+
+      // cycle_direction: ma850 slope (21-record difference)
+      var dir = '平';
+      if (i >= 21 && ma850Val != null && records[i-21][6] != null) {
+        var slope = ma850Val - records[i-21][6];
+        dir = slope > 0 ? '上升' : '下降';
+      }
+      cycleDirs.push(dir);
+
+      // cycle850 from dev850
+      var c850 = 'unknown';
+      if (dev850Val != null) {
+        if (dev850Val > 20) c850 = '过热期';
+        else if (dev850Val > 10) c850 = '扩张期';
+        else if (dev850Val > -10) c850 = '中性期';
+        else if (dev850Val > -20) c850 = '收缩期';
+        else c850 = '底部期';
+      }
+      shortPhases.push(c850);
+
+      // cycle7y from dev1700
+      var c7y = 'unknown';
+      if (dev1700Val != null) {
+        if (dev1700Val > 30) c7y = '过热期';
+        else if (dev1700Val > 10) c7y = '扩张期';
+        else if (dev1700Val > -10) c7y = '中性期';
+        else if (dev1700Val > -30) c7y = '收缩期';
+        else c7y = '底部期';
+      }
+      midPhases.push(c7y);
+
+      // cycle indices from original index
+      shortIdxs.push(Math.floor(originalIdx / 850));
+      midIdxs.push(Math.floor(originalIdx / 1700));
+
+      // 42日SMA
+      sumWindow.push(c);
+      if (sumWindow.length > 42) sumWindow.shift();
+      if (i >= 41) {
+        var sum = 0;
+        for (var j = 0; j < sumWindow.length; j++) sum += sumWindow[j];
+        ma42.push(sum / 42);
+      } else {
+        ma42.push(null);
+      }
+    }
+
+    // 生成周期背景区域（基于3.5年短周期阶段）
+    var cycleZones = [];
+    var zoneStart = 0;
+    var currentPhase = shortPhases[0] || '上升';
+    for (var i = 1; i < shortPhases.length; i++) {
+      if (shortPhases[i] !== currentPhase || i === shortPhases.length - 1) {
+        var endIdx = (i === shortPhases.length - 1 && shortPhases[i] === currentPhase) ? i : i - 1;
+        var isUp = currentPhase === '上升' || currentPhase === '过热' || currentPhase === '扩张';
+        cycleZones.push([
+          { xAxis: dates[zoneStart] },
+          { xAxis: dates[endIdx], itemStyle: { color: isUp ? COLORS.upBg : COLORS.downBg } }
+        ]);
+        zoneStart = endIdx + 1;
+        if (zoneStart < shortPhases.length) currentPhase = shortPhases[zoneStart];
+      }
+    }
+    if (zoneStart < shortPhases.length) {
+      var isUp = shortPhases[zoneStart] === '上升' || shortPhases[zoneStart] === '过热' || shortPhases[zoneStart] === '扩张';
+      cycleZones.push([
+        { xAxis: dates[zoneStart] },
+        { xAxis: dates[dates.length - 1], itemStyle: { color: isUp ? COLORS.upBg : COLORS.downBg } }
+      ]);
+    }
+
+    var splitZones = [{
+      xAxis: KEY_SPLIT_DATE,
+      lineStyle: { color: COLORS.splitLine, width: 1, type: 'dashed' },
+      label: { show: true, position: 'insideEndTop', formatter: '2018.12.31', color: COLORS.text, fontSize: 10 }
+    }];
+
+    dataCache[indexCode] = {
+      name: info.n,
+      dates: dates,
+      klines: klines,
+      volumes: volumes,
+      ma850: ma850,
+      ma1700: ma1700,
+      ma42: ma42,
+      dev850: dev850,
+      dev1700: dev1700,
+      cycleDirs: cycleDirs,
+      shortPhases: shortPhases,
+      midPhases: midPhases,
+      shortIdxs: shortIdxs,
+      midIdxs: midIdxs,
+      cycleZones: cycleZones,
+      splitZones: splitZones,
+      closePrices: closePrices
+    };
+    return dataCache[indexCode];
+  }
+
+  // 根据时间范围过滤
+  function filterByRange(data, range) {
+    if (range === 'ALL') return data;
+    var endDate = new Date(data.dates[data.dates.length - 1]);
+    var startDate = new Date(endDate);
+    switch (range) {
+      case '1M': startDate.setMonth(startDate.getMonth() - 1); break;
+      case '3M': startDate.setMonth(startDate.getMonth() - 3); break;
+      case '1Y': startDate.setFullYear(startDate.getFullYear() - 1); break;
+      case '3Y': startDate.setFullYear(startDate.getFullYear() - 3); break;
+      case '7Y': startDate.setFullYear(startDate.getFullYear() - 7); break;
+      default: return data;
+    }
+    var startStr = startDate.toISOString().split('T')[0];
+    var startIdx = 0;
+    for (var i = 0; i < data.dates.length; i++) {
+      if (data.dates[i] >= startStr) { startIdx = i; break; }
+    }
+
+    function sub(arr) { return arr.slice(startIdx); }
+    return {
+      name: data.name,
+      dates: sub(data.dates),
+      klines: sub(data.klines),
+      volumes: sub(data.volumes),
+      ma850: sub(data.ma850),
+      ma1700: sub(data.ma1700),
+      ma42: sub(data.ma42),
+      dev850: sub(data.dev850),
+      dev1700: sub(data.dev1700),
+      cycleDirs: sub(data.cycleDirs),
+      shortPhases: sub(data.shortPhases),
+      midPhases: sub(data.midPhases),
+      shortIdxs: sub(data.shortIdxs),
+      midIdxs: sub(data.midIdxs),
+      closePrices: sub(data.closePrices),
+      cycleZones: data.cycleZones.filter(function(z) {
+        var zs = z[0].xAxis, ze = z[1].xAxis;
+        return ze >= startStr && zs <= data.dates[data.dates.length - 1];
+      }).map(function(z) {
+        return [
+          { xAxis: z[0].xAxis < startStr ? startStr : z[0].xAxis },
+          { xAxis: z[1].xAxis, itemStyle: z[1].itemStyle }
+        ];
+      }),
+      splitZones: data.splitZones.filter(function(z) {
+        var zDate = z.xAxis;
+        var start = data.dates[0];
+        var end = data.dates[data.dates.length - 1];
+        return zDate >= start && zDate <= end;
+      })
+    };
+  }
+
+  // 获取最新数据显示在面板
+  function updatePanel(data) {
+    if (!data || data.dates.length === 0) return;
+    var i = data.dates.length - 1;
+    var dir = data.cycleDirs[i] || '平';
+    var sp = data.shortPhases[i] || '上升';
+    var mp = data.midPhases[i] || '上升';
+
+    var dirEl = document.getElementById('panelDir');
+    var dirText = dir === '上升' || dir === '涨' ? '上升周期' : (dir === '下降' || dir === '跌' ? '下降周期' : '平');
+    dirEl.textContent = dirText;
+    dirEl.className = 'panel-value ' + (dirText === '上升周期' ? 'up' : (dirText === '下降周期' ? 'down' : 'neutral'));
+
+    document.getElementById('panelShortPhase').textContent = sp;
+    document.getElementById('panelShortPhase').className = 'panel-value ' + (sp === '上升' || sp === '过热' || sp === '扩张' ? 'up' : 'down');
+    document.getElementById('panelMa850').textContent = data.ma850[i] ? data.ma850[i].toFixed(2) : '--';
+    document.getElementById('panelDev850').textContent = data.dev850[i] ? (data.dev850[i] > 0 ? '+' : '') + data.dev850[i].toFixed(2) + '%' : '--';
+    document.getElementById('panelDev850').className = 'panel-value ' + (data.dev850[i] > 0 ? 'up' : 'down');
+
+    document.getElementById('panelMidPhase').textContent = mp;
+    document.getElementById('panelMidPhase').className = 'panel-value ' + (mp === '上升' || mp === '过热' || mp === '扩张' ? 'up' : 'down');
+    document.getElementById('panelMa1700').textContent = data.ma1700[i] ? data.ma1700[i].toFixed(2) : '--';
+    document.getElementById('panelDev1700').textContent = data.dev1700[i] ? (data.dev1700[i] > 0 ? '+' : '') + data.dev1700[i].toFixed(2) + '%' : '--';
+    document.getElementById('panelDev1700').className = 'panel-value ' + (data.dev1700[i] > 0 ? 'up' : 'down');
+
+    document.getElementById('panelShortIdx').textContent = '#' + (data.shortIdxs[i] || 0);
+    document.getElementById('panelMidIdx').textContent = '#' + (data.midIdxs[i] || 0);
+
+    var sDir = document.getElementById('statusDir');
+    sDir.textContent = dirText;
+    sDir.className = 'status-value ' + (dirText === '上升周期' ? 'up' : (dirText === '下降周期' ? 'down' : 'neutral'));
+    var sShort = document.getElementById('statusShort');
+    sShort.textContent = sp;
+    sShort.className = 'status-value ' + (sp === '上升' || sp === '过热' || sp === '扩张' ? 'up' : 'down');
+    var sMid = document.getElementById('statusMid');
+    sMid.textContent = mp;
+    sMid.className = 'status-value ' + (mp === '上升' || mp === '过热' || mp === '扩张' ? 'up' : 'down');
+  }
+
+  // 构建图表配置
+  function buildOption(data) {
+    var n = data.dates.length;
+    var kData = data.klines;
+    var volData = [];
+    for (var i = 0; i < data.volumes.length; i++) {
+      volData.push([i, data.volumes[i], kData[i][0] > kData[i][1] ? -1 : 1]);
+    }
+
+    var mainPct = showTide ? 0.55 : 0.72;
+    var volPct = showTide ? 0.15 : 0.20;
+    var tide1Pct = 0.15;
+    var tide2Pct = 0.15;
+
+    var gridTop = 50;
+    var gridGap = 8;
+    var mainHeight = mainPct * 100;
+    var volHeight = volPct * 100;
+
+    var grids = [
+      { left: 60, right: 16, top: gridTop, height: mainHeight + '%' },
+      { left: 60, right: 16, top: (gridTop + mainHeight + gridGap) + '%', height: volHeight + '%' },
+    ];
+    var xAxes = [
+      { type: 'category', gridIndex: 0, data: data.dates, scale: true, boundaryGap: false, axisLine: { lineStyle: { color: COLORS.grid } }, axisLabel: { color: COLORS.text, fontSize: 10 }, splitLine: { show: false }, axisPointer: { show: true, label: { show: false } }, show: false },
+      { type: 'category', gridIndex: 1, data: data.dates, scale: true, boundaryGap: false, axisLine: { lineStyle: { color: COLORS.grid } }, axisLabel: { color: COLORS.text, fontSize: 10 }, splitLine: { show: false }, axisPointer: { show: true, label: { show: false } } },
+    ];
+    var yAxes = [
+      { scale: true, gridIndex: 0, position: 'right', axisLine: { lineStyle: { color: COLORS.grid } }, splitLine: { show: true, lineStyle: { color: COLORS.grid } }, axisLabel: { color: COLORS.text, fontSize: 10, inside: true, formatter: function(v) { return v.toFixed(0); } } },
+      { scale: true, gridIndex: 1, position: 'right', axisLine: { lineStyle: { color: COLORS.grid } }, splitLine: { show: false }, axisLabel: { color: COLORS.text, fontSize: 10, inside: true }, show: true },
+    ];
+    var series = [
+      {
+        name: 'K线', type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0,
+        data: kData,
+        itemStyle: { color: COLORS.upCandle, color0: COLORS.downCandle, borderColor: COLORS.upCandle, borderColor0: COLORS.downCandle },
+        markArea: { silent: true, data: data.cycleZones },
+        markLine: { silent: true, symbol: 'none', lineStyle: { color: COLORS.splitLine, width: 1, type: 'dashed' }, data: data.splitZones },
+      },
+      { name: '850日(3.5年)', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: data.ma850, smooth: true, symbol: 'none', lineStyle: { color: COLORS.ma850, width: 1.5 }, showSymbol: false },
+      { name: '1700日(7年)', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: data.ma1700, smooth: true, symbol: 'none', lineStyle: { color: COLORS.ma1700, width: 1.5 }, showSymbol: false },
+      {
+        name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
+        data: data.volumes.map(function(v, i) { return [i, v]; }),
+        itemStyle: {
+          color: function(params) {
+            var idx = params.dataIndex;
+            return kData[idx][1] >= kData[idx][0] ? COLORS.volumeUp : COLORS.volumeDown;
+          }
+        }
+      },
+    ];
+
+    if (showTide) {
+      grids.push(
+        { left: 60, right: 16, top: (gridTop + mainHeight + volHeight + gridGap * 2) + '%', height: tide1Pct * 100 + '%' },
+        { left: 60, right: 16, top: (gridTop + mainHeight + volHeight + tide1Pct * 100 + gridGap * 3) + '%', height: tide2Pct * 100 + '%' }
+      );
+      xAxes.push(
+        { type: 'category', gridIndex: 2, data: data.dates, scale: true, boundaryGap: false, axisLine: { lineStyle: { color: COLORS.grid } }, axisLabel: { color: COLORS.text, fontSize: 10 }, splitLine: { show: false }, axisPointer: { show: true, label: { show: false } }, show: false },
+        { type: 'category', gridIndex: 3, data: data.dates, scale: true, boundaryGap: false, axisLine: { lineStyle: { color: COLORS.grid } }, axisLabel: { color: COLORS.text, fontSize: 10 }, splitLine: { show: false }, axisPointer: { show: true, label: { show: false } }, show: false }
+      );
+      yAxes.push(
+        { scale: true, gridIndex: 2, position: 'right', axisLine: { lineStyle: { color: COLORS.grid } }, splitLine: { show: true, lineStyle: { color: COLORS.grid } }, axisLabel: { color: COLORS.text, fontSize: 10, inside: true } },
+        { scale: true, gridIndex: 3, position: 'right', axisLine: { lineStyle: { color: COLORS.grid } }, splitLine: { show: true, lineStyle: { color: COLORS.grid } }, axisLabel: { color: COLORS.text, fontSize: 10, inside: true } }
+      );
+
+      series.push({
+        name: '850偏离度', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: data.dev850,
+        smooth: true, symbol: 'none', lineStyle: { color: '#f59e0b', width: 1 }, areaStyle: { color: 'rgba(245,158,11,0.08)' }, showSymbol: false
+      });
+      series.push({
+        name: '1700偏离度', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: data.dev1700,
+        smooth: true, symbol: 'none', lineStyle: { color: '#ef4444', width: 1 }, showSymbol: false
+      });
+      var zeroLine = [];
+      for (var i = 0; i < data.dev850.length; i++) zeroLine.push(0);
+      series.push({
+        name: '零线', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: zeroLine,
+        lineStyle: { color: '#6b7280', width: 1, type: 'dashed' }, symbol: 'none', showSymbol: false
+      });
+
+      var cumArea = [];
+      var sum = 0;
+      for (var i = 0; i < n; i++) {
+        if (data.ma42[i] != null) {
+          sum += (data.closePrices[i] - data.ma42[i]) / data.ma42[i] * 100;
+        }
+        cumArea.push(sum);
+      }
+      series.push({
+        name: '累积面积', type: 'line', xAxisIndex: 3, yAxisIndex: 3, data: cumArea,
+        smooth: true, symbol: 'none', lineStyle: { color: '#8b5cf6', width: 1.5 }, areaStyle: { color: 'rgba(139,92,246,0.12)' }, showSymbol: false
+      });
+      series.push({
+        name: '42日均线', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: data.ma42,
+        smooth: true, symbol: 'none', lineStyle: { color: COLORS.ma42, width: 1 }, showSymbol: false
+      });
+    }
+
+    return {
+      backgroundColor: COLORS.bg,
+      animation: false,
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross', lineStyle: { color: '#6b7280', width: 1, type: 'dashed' } },
+        backgroundColor: 'rgba(17,24,39,0.95)',
+        borderColor: '#374151',
+        textStyle: { color: '#e0e0e0', fontSize: 12 },
+        padding: 12,
+        formatter: function(params) {
+          var idx = -1;
+          for (var p = 0; p < params.length; p++) { if (params[p].dataIndex != null) { idx = params[p].dataIndex; break; } }
+          if (idx < 0) return '';
+          var date = data.dates[idx];
+          var k = data.klines[idx];
+          var dir = data.cycleDirs[idx];
+          var sp = data.shortPhases[idx];
+          var mp = data.midPhases[idx];
+          var html = '<div style="font-weight:600;margin-bottom:6px;">' + date + ' ' + data.name + '</div>';
+          html += '<div style="display:grid;grid-template-columns:auto auto;gap:4px 12px;font-size:12px;">';
+          html += '<span style="color:#9ca3af">开盘:</span><span>' + (k ? k[0].toFixed(2) : '--') + '</span>';
+          html += '<span style="color:#9ca3af">收盘:</span><span>' + (k ? k[1].toFixed(2) : '--') + '</span>';
+          html += '<span style="color:#9ca3af">最高:</span><span>' + (k ? k[3].toFixed(2) : '--') + '</span>';
+          html += '<span style="color:#9ca3af">最低:</span><span>' + (k ? k[2].toFixed(2) : '--') + '</span>';
+          html += '<span style="color:#9ca3af">850均线:</span><span>' + (data.ma850[idx] ? data.ma850[idx].toFixed(2) : '--') + '</span>';
+          html += '<span style="color:#9ca3af">1700均线:</span><span>' + (data.ma1700[idx] ? data.ma1700[idx].toFixed(2) : '--') + '</span>';
+          html += '</div>';
+          html += '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #374151;font-size:12px;">';
+          var dirColor = (dir === '上升' || dir === '涨') ? '#ff6b6b' : ((dir === '下降' || dir === '跌') ? '#00d084' : '#9ca3af');
+          var spColor = (sp === '上升' || sp === '过热' || sp === '扩张') ? '#ff6b6b' : '#00d084';
+          var mpColor = (mp === '上升' || mp === '过热' || mp === '扩张') ? '#ff6b6b' : '#00d084';
+          html += '<span style="color:#9ca3af">周期方向:</span> <span style="color:' + dirColor + '">' + dir + '</span> &nbsp;';
+          html += '<span style="color:#9ca3af">3.5年:</span> <span style="color:' + spColor + '">' + sp + '</span> &nbsp;';
+          html += '<span style="color:#9ca3af">7年:</span> <span style="color:' + mpColor + '">' + mp + '</span>';
+          html += '</div>';
+          return html;
+        }
+      },
+      grid: grids,
+      xAxis: xAxes,
+      yAxis: yAxes,
+      dataZoom: [
+        { type: 'inside', xAxisIndex: showTide ? [0, 1, 2, 3] : [0, 1], start: 0, end: 100 },
+        { type: 'slider', xAxisIndex: showTide ? [0, 1, 2, 3] : [0, 1], show: true, bottom: 40, height: 20, borderColor: '#374151', fillerColor: 'rgba(37,99,235,0.2)', handleStyle: { color: '#2563eb' }, textStyle: { color: '#9ca3af' }, dataBackground: { lineStyle: { color: '#4b5563' }, areaStyle: { color: '#374151' } } }
+      ],
+      series: series,
+      legend: {
+        show: true, top: 8, left: 60, textStyle: { color: COLORS.text, fontSize: 11 },
+        data: showTide ? ['K线', '850日(3.5年)', '1700日(7年)', '42日均线', '成交量', '850偏离度', '1700偏离度', '累积面积'] : ['K线', '850日(3.5年)', '1700日(7年)', '成交量']
+      },
+    };
+  }
+
+  // 渲染图表
+  function render() {
+    try {
+      var fullData = preprocessData(currentIndex);
+      if (!fullData) return;
+      var data = filterByRange(fullData, currentRange);
+      updatePanel(data);
+      var option = buildOption(data);
+      if (!chart) {
+        chart = echarts.init(document.getElementById('mainChart'));
+        window.addEventListener('resize', function() { chart.resize(); });
+      }
+      chart.setOption(option, true);
+      showSuccess();
+    } catch (err) {
+      showError('渲染图表失败: ' + (err && err.message || '未知错误'));
+      console.error(err);
+    }
+  }
+
+  // 指数切换
+  var indexBtns = document.querySelectorAll('[data-index]');
+  for (var i = 0; i < indexBtns.length; i++) {
+    indexBtns[i].addEventListener('click', function() {
+      var btn = this;
+      var btns = document.querySelectorAll('[data-index]');
+      for (var j = 0; j < btns.length; j++) btns[j].classList.remove('active');
+      btn.classList.add('active');
+      currentIndex = btn.dataset.index;
+      render();
+    });
+  }
+
+  // 时间范围切换
+  var rangeBtns = document.querySelectorAll('[data-range]');
+  for (var i = 0; i < rangeBtns.length; i++) {
+    rangeBtns[i].addEventListener('click', function() {
+      var btn = this;
+      var btns = document.querySelectorAll('[data-range]');
+      for (var j = 0; j < btns.length; j++) btns[j].classList.remove('active');
+      btn.classList.add('active');
+      currentRange = btn.dataset.range;
+      render();
+    });
+  }
+
+  // 潮汐理论切换
+  var tideBtn = document.getElementById('toggleTide');
+  tideBtn.addEventListener('click', function() {
+    showTide = !showTide;
+    tideBtn.textContent = showTide ? '隐藏潮汐理论' : '显示潮汐理论';
+    tideBtn.classList.toggle('active', showTide);
+    render();
+  });
+
+  // 可拖拽面板
+  (function() {
+    var panel = document.getElementById('cyclePanel');
+    var handle = document.getElementById('panelHandle');
+    var dragging = false, startX, startY, panelStartX, panelStartY;
+    handle.addEventListener('mousedown', function(e) {
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      var rect = panel.getBoundingClientRect();
+      panelStartX = rect.left;
+      panelStartY = rect.top;
+      panel.style.transition = 'none';
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      panel.style.left = (panelStartX + dx) + 'px';
+      panel.style.top = (panelStartY + dy) + 'px';
+      panel.style.right = 'auto';
+    });
+    document.addEventListener('mouseup', function() {
+      dragging = false;
+      panel.style.transition = '';
+    });
+  })();
+
+  // 轮询等待资源加载
+  var pollCount = 0;
+  var MAX_POLL = 600; // 60 seconds
+  function pollResources() {
+    pollCount++;
+    var hasEcharts = typeof echarts !== 'undefined';
+    var hasData = typeof ALL_INDEX_DATA !== 'undefined' && ALL_INDEX_DATA;
+
+    if (!hasEcharts || !hasData) {
+      var missing = [];
+      if (!hasEcharts) missing.push('ECharts');
+      if (!hasData) missing.push('数据(约1MB)');
+      document.getElementById('loadingText').textContent = '正在加载 ' + missing.join(' + ') + '... (' + Math.round(pollCount / 10) + 's)';
+
+      if (pollCount > MAX_POLL) {
+        showError('加载超时(60秒): ' + missing.join('、') + ' 未加载。\n请检查网络连接(ECharts)，或确保 all_index_cycle_data_compact.js 与 HTML 在同一目录。\n推荐使用: 双击运行 start_server.bat 启动本地服务器。');
+        return;
+      }
+
+      setTimeout(pollResources, 100);
+      return;
+    }
+
+    rawData = ALL_INDEX_DATA;
+    render();
+  }
+
+  pollResources();
+
+})();
+</script>
+</body>
+</html>
